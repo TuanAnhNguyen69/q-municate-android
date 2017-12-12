@@ -680,4 +680,6 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
             outRect.set(space, space, space, space);
         }
     }
+
+
 }
