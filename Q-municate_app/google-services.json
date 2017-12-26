@@ -1,31 +1,35 @@
 {
   "project_info": {
-    "project_number": "265299067289",
-    "firebase_url": "https://teak-perigee-572.firebaseio.com",
-    "project_id": "teak-perigee-572",
-    "storage_bucket": "teak-perigee-572.appspot.com"
+    "project_number": "584971888595",
+    "firebase_url": "https://emotion-186206.firebaseio.com",
+    "project_id": "emotion-186206",
+    "storage_bucket": "emotion-186206.appspot.com"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:265299067289:android:6d064b5bcaa0dba1",
+        "mobilesdk_app_id": "1:584971888595:android:6d064b5bcaa0dba1",
         "android_client_info": {
           "package_name": "com.quickblox.q_municate"
         }
       },
       "oauth_client": [
         {
-          "client_id": "265299067289-kpedc35feo4pgo783lke9la3bct1ph78.apps.googleusercontent.com",
-          "client_type": 3
+          "client_id": "584971888595-65j93n2t5rogjoctjekoks5f7u961hmh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.quickblox.q_municate",
+            "certificate_hash": "380f81414005b61f1c4b77c223593bcc0b2b78c6"
+          }
         },
         {
-          "client_id": "265299067289.apps.googleusercontent.com",
+          "client_id": "584971888595-gr3sbkqvtkm3jgdr86r6l7c38ckp0luq.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyAE_-1N8BR-ztypF9-aKBMY6xqT7AKKgs4"
+          "current_key": "AIzaSyC6i6S8rJMgEpHxiezilx8xETcYpx_fJd8"
         }
       ],
       "services": {
@@ -33,8 +37,13 @@
           "status": 1
         },
         "appinvite_service": {
-          "status": 1,
-          "other_platform_oauth_client": []
+          "status": 2,
+          "other_platform_oauth_client": [
+            {
+              "client_id": "584971888595-gr3sbkqvtkm3jgdr86r6l7c38ckp0luq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         },
         "ads_service": {
           "status": 2

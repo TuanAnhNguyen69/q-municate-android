@@ -1,6 +1,25 @@
 package com.quickblox.q_municate.ui.fragments.call;
 
+import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.PixelFormat;
+import android.graphics.Point;
+import android.graphics.drawable.BitmapDrawable;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
+import android.os.AsyncTask;
+import android.os.Build;
+import android.os.Environment;
+import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
 import android.support.v4.app.Fragment;
 import android.content.Context;
 import android.graphics.Rect;
@@ -10,19 +29,34 @@ import android.os.Message;
 import android.support.annotation.DimenRes;
 import android.support.annotation.NonNull;
 import android.support.v7.widget.RecyclerView;
+import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Display;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.SurfaceHolder;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.RelativeLayout;
+import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.ToggleButton;
 
+import com.google.gson.Gson;
+import com.microsoft.projectoxford.emotion.EmotionServiceClient;
+import com.microsoft.projectoxford.emotion.EmotionServiceRestClient;
+import com.microsoft.projectoxford.emotion.contract.FaceRectangle;
+import com.microsoft.projectoxford.emotion.contract.Order;
+import com.microsoft.projectoxford.emotion.contract.RecognizeResult;
+import com.microsoft.projectoxford.emotion.rest.EmotionServiceException;
+import com.microsoft.projectoxford.face.FaceServiceRestClient;
+import com.microsoft.projectoxford.face.contract.Face;
 import com.nostra13.universalimageloader.core.ImageLoader;
 import com.quickblox.q_municate.R;
 import com.quickblox.q_municate.ui.activities.call.CallActivity;
@@ -39,7 +73,6 @@ import com.quickblox.users.model.QBUser;
 import com.quickblox.videochat.webrtc.AppRTCAudioManager;
 import com.quickblox.videochat.webrtc.BaseSession;
 import com.quickblox.videochat.webrtc.QBMediaStreamManager;
-import com.quickblox.videochat.webrtc.exception.QBRTCException;
 import com.quickblox.videochat.webrtc.QBRTCSession;
 import com.quickblox.videochat.webrtc.QBRTCTypes;
 import com.quickblox.videochat.webrtc.callbacks.QBRTCClientVideoTracksCallbacks;
@@ -52,10 +85,19 @@ import org.webrtc.EglRenderer;
 import org.webrtc.RendererCommon;
 import org.webrtc.VideoRenderer;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.Serializable;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
 
 
 /**
@@ -97,6 +139,30 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
     private SystemPermissionHelper systemPermissionHelper;
     private boolean isAllViewsInitialized = true;
 
+    //
+    int screenHeight, screenWidth;
+    private MediaProjection mMediaProjection;
+    private VirtualDisplay mVirtualDisplay;
+    private MediaProjectionManager mMediaProjectionManager;
+    private static final String STATE_RESULT_CODE = "result_code";
+    private static final String STATE_RESULT_DATA = "result_data";
+    private static final int REQUEST_MEDIA_PROJECTION = 1;
+    private int mScreenDensity;
+    private int mResultCode;
+    private Intent mResultData;
+    ImageReader mImageReader;
+    private Timer timer;
+    private TimerTask timerTask;
+    public static final String EMOTION_API_KEY = "2871e8188acc40df98759c07a876d426";
+    public static final String FACE_API_KEY = "fa0142197b854f09a89525915c5ab7a1";
+    Bitmap mBitmap;
+    private EmotionServiceClient client;
+    ImageView emotionImage;
+    RelativeLayout layout;
+    ArrayList<ImageView> imageViews;
+
+
+
     public static ConversationCallFragment newInstance(List<QBUser> opponents, String callerName,
             QBRTCTypes.QBConferenceType qbConferenceType,
             StartConversationReason reason,
@@ -116,6 +182,141 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
         return fragment;
     }
 
+    @Override
+    public void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (mResultData != null) {
+            outState.putInt(STATE_RESULT_CODE, mResultCode);
+            outState.putParcelable(STATE_RESULT_DATA, mResultData);
+        }
+    }
+
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == REQUEST_MEDIA_PROJECTION) {
+            if (resultCode != Activity.RESULT_OK) {
+                Log.i(TAG, "User cancelled");
+                Toast.makeText(getActivity(), "User cancelled", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Activity activity = getActivity();
+            if (activity == null) {
+                return;
+            }
+            Log.i(TAG, "Starting screen capture");
+            mResultCode = resultCode;
+            mResultData = data;
+            setUpMediaProjection();
+            setUpVirtualDisplay();
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        tearDownMediaProjection();
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
+    private void takeScreenShot() {
+        Date now = new Date();
+        android.text.format.DateFormat.format("yyyy-MM-dd_hh:mm:ss", now);
+        try {
+            Image image = mImageReader.acquireLatestImage();
+            if (image != null) {
+                Image.Plane[] planes = image.getPlanes();
+                ByteBuffer buffer = planes[0].getBuffer();
+                int pixelStride = planes[0].getPixelStride();
+                int rowStride = planes[0].getRowStride();
+                int rowPadding = rowStride - pixelStride * screenWidth;
+                int bitmapWidth = screenWidth + rowPadding / pixelStride;
+
+                if (mBitmap != null) {
+                    mBitmap.recycle();
+                }
+
+                mBitmap = Bitmap.createBitmap(bitmapWidth,
+                        screenHeight, Bitmap.Config.ARGB_8888);
+
+                mBitmap.copyPixelsFromBuffer(buffer);
+
+                image.close();
+            }
+        } catch (Throwable e) {
+            // Several error may come out with file handling or DOM
+            e.printStackTrace();
+        }
+
+        try {
+            new doRequest(false).execute();
+            Log.d(TAG, "onPostExecute: start regconize");
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void setUpMediaProjection() {
+        mMediaProjection = mMediaProjectionManager.getMediaProjection(mResultCode, mResultData);
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void tearDownMediaProjection() {
+        if (mMediaProjection != null) {
+            mMediaProjection.stop();
+            mMediaProjection = null;
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void startScreenCapture() {
+        Activity activity = getActivity();
+        if (activity == null) {
+            return;
+        }
+        if (mMediaProjection != null) {
+            setUpVirtualDisplay();
+        } else if (mResultCode != 0 && mResultData != null) {
+            setUpMediaProjection();
+            setUpVirtualDisplay();
+        } else {
+            Log.i(TAG, "Requesting confirmation");
+            // This initiates a prompt dialog for the user to confirm screen projection.
+            startActivityForResult(
+                    mMediaProjectionManager.createScreenCaptureIntent(),
+                    REQUEST_MEDIA_PROJECTION);
+        }
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void setUpVirtualDisplay() {
+        Display display = getActivity().getWindowManager().getDefaultDisplay();
+        Point size=new Point();
+        display.getSize(size);
+
+        screenWidth = size.x;
+        screenHeight = size.y;
+        mImageReader = ImageReader.newInstance(screenWidth,screenHeight, PixelFormat.RGBA_8888, 2);
+        mVirtualDisplay = mMediaProjection.createVirtualDisplay("screen-mirror", screenWidth, screenHeight, mScreenDensity,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, mImageReader.getSurface(), null, null);
+
+        takeScreenShot();
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
+    private void stopScreenCapture() {
+        if (mVirtualDisplay == null) {
+            return;
+        }
+        mVirtualDisplay.release();
+        mVirtualDisplay = null;
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         View view = inflater.inflate(R.layout.fragment_conversation, container, false);
@@ -145,8 +346,8 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
 
         displayOpponentAvatar();
         initAudioManager();
-
         mainHandler = new FragmentLifeCycleHandler();
+
         return view;
 
     }
@@ -228,6 +429,7 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
     }
 
 
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     @Override
     public void onStart() {
         super.onStart();
@@ -262,7 +464,25 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
     public void onCreate(Bundle savedInstanceState) {
         Log.d(TAG, "onCreate() from " + TAG);
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            mResultCode = savedInstanceState.getInt(STATE_RESULT_CODE);
+            mResultData = savedInstanceState.getParcelable(STATE_RESULT_DATA);
+        }
+
+        client = new EmotionServiceRestClient(EMOTION_API_KEY);
         setHasOptionsMenu(true);
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    @Override
+    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+        Activity activity = getActivity();
+        DisplayMetrics metrics = new DisplayMetrics();
+        activity.getWindowManager().getDefaultDisplay().getMetrics(metrics);
+        mScreenDensity = metrics.densityDpi;
+        mMediaProjectionManager = (MediaProjectionManager)
+                activity.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
     }
 
     private void initViews(View view) {
@@ -291,7 +511,13 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
 
         isAllViewsInitialized = true;
 
+        emotionImage = view.findViewById(R.id.emotion_image);
+        emotionImage.setVisibility(View.INVISIBLE);
+
+        layout = view.findViewById(R.id.fragmentOpponents);
+
         actionButtonsEnabled(false);
+        imageViews = new ArrayList<>();
     }
 
     @Override
@@ -306,6 +532,7 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
         }
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     @Override
     public void onPause() {
         // If camera state is CameraState.ENABLED_FROM_USER or CameraState.NONE
@@ -314,6 +541,7 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
             toggleCamera(false);
         }
 
+        stopScreenCapture();
         super.onPause();
     }
 
@@ -536,12 +764,14 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
     }
 
     private void toggleCamera(boolean isNeedEnableCam) {
+
         QBRTCSession currentSession = ((CallActivity) getActivity()).getCurrentSession();
         if (currentSession != null && currentSession.getMediaStreamManager() != null){
             currentSession.getMediaStreamManager().setVideoEnabled(isNeedEnableCam);
             getActivity().invalidateOptionsMenu();
         }
     }
+
 
     @Override
     public void onLocalVideoTrackReceive(QBRTCSession qbrtcSession, final QBRTCVideoTrack videoTrack) {
@@ -556,6 +786,7 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
         }
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     @Override
     public void onRemoteVideoTrackReceive(QBRTCSession session, QBRTCVideoTrack videoTrack, Integer userID) {
         Log.d(TAG, "onRemoteVideoTrackReceive for opponent= " + userID);
@@ -568,6 +799,7 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
             fillVideoView(remoteVideoView, videoTrack, false);
             updateVideoView(remoteVideoView, false);
         }
+        startScreenCapture(); // TODO
     }
 
     private void fillVideoView(QBRTCSurfaceView videoView, QBRTCVideoTrack videoTrack, boolean localRenderer) {
@@ -605,7 +837,6 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
     public void onConnectedToUser(QBRTCSession qbrtcSession,final Integer userId) {
         actionsByConnectedToUser();
     }
-
 
     @Override
     public void onConnectionClosedForUser(QBRTCSession qbrtcSession, Integer integer) {
@@ -648,7 +879,6 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
     }
 
 
-
     private enum CameraState {
         NONE,
         DISABLED_FROM_USER,
@@ -681,5 +911,183 @@ public class ConversationCallFragment extends Fragment implements Serializable, 
         }
     }
 
+    // Emotion Detect
 
+    private List<RecognizeResult> processWithAutoFaceDetection() throws EmotionServiceException, IOException {
+        Log.d("emotion", "Start emotion detection with auto-face detection");
+
+        Gson gson = new Gson();
+
+        // Put the image into an input stream for detection.
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        mBitmap.compress(Bitmap.CompressFormat.JPEG, 100, output);
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(output.toByteArray());
+
+        long startTime = System.currentTimeMillis();
+        // -----------------------------------------------------------------------
+        // KEY SAMPLE CODE STARTS HERE
+        // -----------------------------------------------------------------------
+
+        List<RecognizeResult> result = null;
+        //
+        // Detect emotion by auto-detecting faces in the image.
+        //
+        result = this.client.recognizeImage(inputStream);
+
+        String json = gson.toJson(result);
+        Log.d("result", json);
+
+        Log.d("emotion", String.format("Detection done. Elapsed time: %d ms", (System.currentTimeMillis() - startTime)));
+        // -----------------------------------------------------------------------
+        // KEY SAMPLE CODE ENDS HERE
+        // -----------------------------------------------------------------------
+        return result;
+    }
+
+    private List<RecognizeResult> processWithFaceRectangles() throws EmotionServiceException, com.microsoft.projectoxford.face.rest.ClientException, IOException {
+        Log.d("emotion", "Do emotion detection with known face rectangles");
+        Gson gson = new Gson();
+
+        // Put the image into an input stream for detection.
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        mBitmap.compress(Bitmap.CompressFormat.JPEG, 100, output);
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(output.toByteArray());
+
+        long timeMark = System.currentTimeMillis();
+        Log.d("emotion", "Start face detection using Face API");
+        FaceRectangle[] faceRectangles = null;
+        String faceSubscriptionKey = FACE_API_KEY;
+        FaceServiceRestClient faceClient = new FaceServiceRestClient("https://westcentralus.api.cognitive.microsoft.com/face/v1.0" ,faceSubscriptionKey);
+        Face faces[] = faceClient.detect(inputStream, false, false, null);
+        Log.d("emotion", String.format("Face detection is done. Elapsed time: %d ms", (System.currentTimeMillis() - timeMark)));
+
+        if (faces != null) {
+            faceRectangles = new FaceRectangle[faces.length];
+
+            for (int i = 0; i < faceRectangles.length; i++) {
+                // Face API and Emotion API have different FaceRectangle definition. Do the conversion.
+                com.microsoft.projectoxford.face.contract.FaceRectangle rect = faces[i].faceRectangle;
+                faceRectangles[i] = new com.microsoft.projectoxford.emotion.contract.FaceRectangle(rect.left, rect.top, rect.width, rect.height);
+            }
+        }
+
+        List<RecognizeResult> result = null;
+        if (faceRectangles != null) {
+            inputStream.reset();
+
+            timeMark = System.currentTimeMillis();
+            Log.d("emotion", "Start emotion detection using Emotion API");
+            // -----------------------------------------------------------------------
+            // KEY SAMPLE CODE STARTS HERE
+            // -----------------------------------------------------------------------
+            result = this.client.recognizeImage(inputStream, faceRectangles);
+
+            String json = gson.toJson(result);
+            Log.d("result", json);
+            // -----------------------------------------------------------------------
+            // KEY SAMPLE CODE ENDS HERE
+            // -----------------------------------------------------------------------
+            Log.d("emotion", String.format("Emotion detection is done. Elapsed time: %d ms", (System.currentTimeMillis() - timeMark)));
+        }
+        return result;
+    }
+
+    private class doRequest extends AsyncTask<String, String, List<RecognizeResult>> {
+        // Store error message
+        private Exception e = null;
+        private boolean useFaceRectangles = false;
+
+        public doRequest(boolean useFaceRectangles) {
+            this.useFaceRectangles = useFaceRectangles;
+        }
+
+        @Override
+        protected List<RecognizeResult> doInBackground(String... args) {
+            if (this.useFaceRectangles == false) {
+                try {
+                    return processWithAutoFaceDetection();
+                } catch (Exception e) {
+                    this.e = e;    // Store error
+                }
+            } else {
+                try {
+                    return processWithFaceRectangles();
+                } catch (Exception e) {
+                    this.e = e;    // Store error
+                }
+            }
+            return null;
+        }
+
+        @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+        @Override
+        protected void onPostExecute(List<RecognizeResult> result) {
+            super.onPostExecute(result);
+            for (ImageView imageView : imageViews) {
+                layout.removeViewInLayout(imageView);
+            }
+            imageViews.clear();
+            if (result != null && !result.isEmpty()) {
+                for (RecognizeResult recognizeResult : result) {
+                    List<Map.Entry<String, Double>> rankedList;
+                    rankedList = recognizeResult.scores.ToRankedList(Order.DESCENDING);
+                    Log.d(TAG, "onPostExecute: Reconize OK");
+                    if (getContext() != null) {
+                        Log.d(TAG, rankedList.get(0).getKey() + Double.toString(rankedList.get(0).getValue()));
+                        ImageView emotionImage = new ImageView(getContext());
+                        emotionImage.setZ(1);
+                        emotionImage.setVisibility(View.VISIBLE);
+                        emotionImage.setX(recognizeResult.faceRectangle.left - 70);
+                        emotionImage.setY(recognizeResult.faceRectangle.top - 70);
+                        imageViews.add(emotionImage);
+                        layout.addView(emotionImage);
+
+                        String emotion = rankedList.get(0).getKey();
+                        Double emotionValue = rankedList.get(0).getValue();
+
+                        if (emotion.equalsIgnoreCase("NEUTRAL") && emotionValue <= 0.7) {
+                            emotion = rankedList.get(1).getKey();
+                        }
+
+                        switch (emotion) {
+                            case "ANGER" :
+                                emotionImage.setImageResource(R.drawable.angry);
+                                break;
+                            case "CONTEMPT" :
+                                emotionImage.setImageResource(R.drawable.smirking);
+                                break;
+                            case "DISGUST" :
+                                emotionImage.setImageResource(R.drawable.disgusted);
+                                break;
+                            case "FEAR" :
+                                emotionImage.setImageResource(R.drawable.scared);
+                                break;
+                            case "HAPPINESS" :
+                                emotionImage.setImageResource(R.drawable.happy);
+                                break;
+                            case "SADNESS" :
+                                emotionImage.setImageResource(R.drawable.crying);
+                                break;
+                            case "SURPRISE" :
+                                emotionImage.setImageResource(R.drawable.surprised);
+                                break;
+                            default:
+                                emotionImage.setImageResource(R.drawable.neutral);
+                                break;
+                        }
+                    }
+                }
+            }
+            else {
+                if (getContext() != null) {
+                    for (ImageView imageView : imageViews) {
+                        layout.removeViewInLayout(imageView);
+                        imageViews.clear();
+                    }
+                }
+            }
+
+            takeScreenShot();
+        }
+    }
 }

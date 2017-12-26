@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">Q-municate</string>
+    <string name="app_name">E-municate</string>
 
 
     <!-- ActionBar -->
@@ -53,7 +53,7 @@
 
     <!-- User Agreement -->
     <string name="user_agreement_title">User Agreement</string>
-    <string name="user_agreement_label">By clicking Tick, you agree to Q-municate\n<b><u>User Agreement</u></b></string>
+    <string name="user_agreement_label">By clicking Tick, you agree to E-municate\n<b><u>User Agreement</u></b></string>
 
 
     <!-- Forgot Password -->
@@ -223,8 +223,8 @@
     <string name="invite_friends_send">Send</string>
     <string name="invite_friends_select_all">Select All</string>
     <string name="invite_friends_choose_email_provider">Choose an email provider:</string>
-    <string name="invite_friends_subject_of_invitation">Q-municate</string>
-    <string name="invite_friends_body_of_invitation">Dear friend, use Q-municate application to reach me!\nDownload it here: http://q-municate.com/</string>
+    <string name="invite_friends_subject_of_invitation">E-municate</string>
+    <string name="invite_friends_body_of_invitation">Dear friend, use E-municate application to reach me!\nDownload it here: http://q-municate.com/</string>
     <string name="invite_friends_fb_request_canceled">Request cancelled</string>
 
 

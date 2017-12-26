@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/fragmentOpponents"
     android:layout_width="fill_parent"
     android:layout_height="fill_parent"
@@ -8,17 +9,22 @@
     android:keepScreenOn="true"
     >
 
+    <ImageView
+        android:id="@+id/emotion_image"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:translationZ="1dp"
+        app:srcCompat="@color/blue" />
+
     <com.quickblox.videochat.webrtc.view.QBRTCSurfaceView
         android:id="@+id/remote_video_view"
-        android:layout_height="match_parent"
         android:layout_width="match_parent"
-        />
+        android:layout_height="match_parent" />
 
     <com.quickblox.videochat.webrtc.view.QBRTCSurfaceView
         android:id="@+id/local_video_view"
         style="@style/LocalVideoViewStyle"
-        android:visibility="invisible"
-        />
+        android:visibility="visible" />
 
     <FrameLayout
         android:id="@+id/avatar_and_name"
